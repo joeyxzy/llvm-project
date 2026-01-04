@@ -38,14 +38,10 @@ namespace opts {
                       cl::cat(BoltOptCategory));
   } // namespace opts
 
-/*一.哈希阶段*/
-// 1. MD5Key：用两个 uint64_t 表示 128 位 MD5，用于 DenseMap 的 Key
-
 
 
 //特化DenseMap
 namespace llvm {
-  //关于数据机构MD5Key的特化后的数据结构
   template <> struct DenseMapInfo<MD5Key> {
     static inline MD5Key getEmptyKey() { return {~0ULL, ~0ULL}; }
     static inline MD5Key getTombstoneKey() { return {~0ULL - 1, ~0ULL - 1}; }
@@ -139,7 +135,6 @@ void dumpFunctionProperties(BinaryContext &BC) {
 
   auto AllFunctions = BC.getAllBinaryFunctions();
   for (BinaryFunction *BF : AllFunctions) {
-      // 检查是否存在于 map 中，不存在默认为 false (或者你可以打印 "N/A")
       bool HasCalls = false;
       if (FunctionHasCalls.count(BF)) {
           HasCalls = FunctionHasCalls[BF];
@@ -149,8 +144,6 @@ void dumpFunctionProperties(BinaryContext &BC) {
       if (SwFunctionMap.count(BF)) {
           IsSw = SwFunctionMap[BF];
       }
-
-      // 如果两个都不在 Map 里（比如被过滤掉的简单函数），可以选择不打印
       if (!FunctionHasCalls.count(BF) && !SwFunctionMap.count(BF)) continue;
 
       outs() << format("%-40s | %-10s | %-10s\n", 
@@ -320,21 +313,18 @@ void runMatching(BinaryContext &BC,uint64_t TargetLen) {
     // 3. 检查序列自身的合法性 (IsSequenceLegal 的内联版本)
     // 我们需要一次性检查整个区间的属性
     bool RangeInvalid = false;
-    // 这里的循环是必要的，但也是最耗时的。
     // 可以在这里通过 "跳过" 优化：如果在 i+k 处发现 INVALID，
-    // 下一轮外层循环 i 可以直接跳到 i+k+1。
+    // 下一轮外层循环 i 可以直接跳到 i+k+1
     for (uint64_t k = 0; k < Len; ++k) {
       uint8_t F = GlobalInstFlags[i + k];
       if (F & (STATUS_INVALID | STATUS_USED | STATUS_IS_STACK)) {
         RangeInvalid = true;
-        // Optimization: 外层 i 可以快进，因为 i...i+k 之间的任何点做起点都会撞上这个无效点
-        // i += k; // 小心处理循环递增
         break; 
       }
     }
     if (RangeInvalid) continue;
 
-    // --- 4. 核心匹配逻辑 (与你原有逻辑类似，但更简洁) ---
+    // 4. 核心逻辑
     MD5Key StartKey = GlobalInstructions[i].Key;
     std::vector<uint64_t> Matches;
     Matches.push_back(i);
@@ -350,11 +340,7 @@ void runMatching(BinaryContext &BC,uint64_t TargetLen) {
           // 快速过滤：BB 长度不够，或者起始点无效
           if (GlobalDistToEnd[StartPos] < Len) continue;
           if (GlobalInstFlags[StartPos] & (STATUS_INVALID | STATUS_USED | STATUS_IS_STACK)) continue;
-
-          // 深度检查 Candidate
           bool CandInvalid = false;
-          
-          // 检查哈希一致性 + 状态位
           for (uint64_t k = 0; k < Len; ++k) {
               // 比较 Key
               if (GlobalInstructions[i+k].Key != GlobalInstructions[StartPos+k].Key) {
@@ -373,7 +359,7 @@ void runMatching(BinaryContext &BC,uint64_t TargetLen) {
       }
     }
 
-    // 5. 评估与采纳
+    // 5.评分
     uint64_t Freq = Matches.size();
     if (Freq < 2) continue;
     int64_t Score = calculateScore(Len, Freq);
@@ -481,8 +467,6 @@ void performOutlining(BinaryContext &BC,int &GlobalOutlineCount) {
                         SetupIndex = i; break;
                     }
                  }
-                 // 这里的 StartIdx 是全局索引，需要转成 BB 内索引比较，略麻烦
-                 // 简单起见：如果含有栈操作且在 Entry Block，为了安全直接视为不安全
                  WillChangeSP = true; 
             }
 
@@ -539,13 +523,13 @@ void performOutlining(BinaryContext &BC,int &GlobalOutlineCount) {
         BC.MIB->createUncondBranch(BranchInst, Req.Callee->getSymbol(), BC.Ctx.get());
 
         // 2. 删除指令
-        // 我们需要删除：[Candidate] + [RET]
+        // 我们需要删除Candidate + RET
         
-        // 删除原来的 RET 指令 (位于 Index + Length)
+        // 删除原来的 RET 指令位于 Index + Length
         auto RetIter = BB->begin() + (Req.Index + Req.Length);
         BB->eraseInstruction(RetIter);
 
-        // 删除 Candidate 中除了第一条以外的指令 (和下面逻辑类似)
+        // 删除 Candidate 中除了第一条以外的指令
         if (Req.Length > 1) {
             auto EraseIt = BB->begin() + Req.Index + 1;
             for (uint32_t k = 1; k < Req.Length; ++k) {
@@ -556,15 +540,12 @@ void performOutlining(BinaryContext &BC,int &GlobalOutlineCount) {
         // 3. 替换第一条指令为 B
         auto It = BB->begin() + Req.Index;
         *It = BranchInst;
-
-        // TCO 完成，无需处理 Need3Steps，也不需要 STP/LDP
         continue; 
     }
     BinaryFunction *CallerFunc = BB->getFunction();
     FrameType FT = analyzeFunctionFrame(BC, *CallerFunc);
     bool Need3Steps = (FT != FrameType::Standard);
 
-    // 3. [关键修正] 即使是 Standard 函数，如果插入点在 Frame Setup 之前，依然不安全
     if (!Need3Steps && BB == &CallerFunc->front()) {
         // 我们当前在 Entry Block，需要看看插入点在哪里
         int SetupIndex = -1;
@@ -576,7 +557,7 @@ void performOutlining(BinaryContext &BC,int &GlobalOutlineCount) {
             }
         }
         
-        // 如果插入点 (Req.Index) 在 Setup 之前，必须保护 LR
+        // 如果插入点在 Setup 之前，必须保护 LR
         if (SetupIndex != -1 && (int)Req.Index < SetupIndex) {
             Need3Steps = true;
             // outs() << "BOLT-DEBUG: " << CallerFunc->getPrintName() 
@@ -619,12 +600,10 @@ void performOutlining(BinaryContext &BC,int &GlobalOutlineCount) {
       BB->insertInstruction(It, RestoreInst);
 
   } else {
-      // --- 情况 B: 非叶子函数，直接替换为 Call ---
       *It = CallInst;
   }
   }
 
-  // 4. 最终验证
   outs() << "BOLT-DEBUG: Checking outlined functions post-materialization\n";
   for (auto &BFI : BC.getBinaryFunctions()) {
     BinaryFunction &BF = BFI.second;
@@ -641,7 +620,6 @@ void performOutlining(BinaryContext &BC,int &GlobalOutlineCount) {
 
 
 
-// [新增函数] 用于构建/重建全局指令视图
 void mapInstructions(BinaryContext &BC) {
   // 清空全局容器
   GlobalInstructions.clear();
@@ -659,14 +637,13 @@ void mapInstructions(BinaryContext &BC) {
   GlobalInstFlags.reserve(EstimatedInsts);
   GlobalDistToEnd.reserve(EstimatedInsts);
 
-  // 遍历所有函数（包括刚刚新生成的 Outlined 函数！）
+  // 遍历所有函数，包括刚刚新生成的 Outlined 函数
   for (BinaryFunction *BF : AllFunctions) {
     BinaryFunction &Function = *BF;
     
-    // 即使是新生成的 func_outline_xxx 也是 Simple 的，可以被处理，从而实现嵌套
+    // 即使是新生成的 func_outline也是 Simple 的，可以被处理，从而实现嵌套
     if (!Function.isSimple()) continue;
     bool FuncHasProfile = Function.hasProfile();
-    // --- 逻辑复用：ShrinkWrap 检测 ---
     bool FoundShrinkWrapPattern = false;
     for (BinaryBasicBlock &BB : Function) {
       for (size_t i = 0; i < BB.size(); ++i) {
@@ -689,7 +666,6 @@ void mapInstructions(BinaryContext &BC) {
     }
     SwFunctionMap[&Function] = FoundShrinkWrapPattern;
 
-    // --- 逻辑复用：指令哈希与填充 ---
     for (BinaryBasicBlock &BB : Function) {
       uint32_t BBIdx = 0;
       size_t BBStartGlobalIdx = GlobalInstructions.size();
@@ -755,23 +731,21 @@ Error AArch64Outlining::runOnFunctions(BinaryContext &BC) {
 
   int GlobalOutlineCount = 0; // 全局计数器
 
-  // [关键逻辑] 从大到小遍历长度
-  // 32 到 4 (MinLen)
+  //关键逻辑从大到小遍历长度
+  //32到4
   for (uint64_t Len = 32; Len >= 4; --Len) {
     
-    // 1. 每一轮新的长度开始前，重新扫描整个二进制
+    // 1.每一轮新的长度开始前，重新扫描整个二进制
     //这样上一轮生成的 BL 指令和新生成的 Function 都会被纳入本轮的考量
     //从而实现嵌套外联
     mapInstructions(BC);
 
-    // 2. 针对当前长度寻找匹配
+    // 2.针对当前长度寻找匹配
     runMatching(BC, Len);
 
-    // 3. 如果找到了，执行外联替换
+    // 3.如果找到了执行外联替换
     if (!AllCandidates.empty()) {
        outs() << "BOLT-INFO: Processing Length " << Len << ", found " << AllCandidates.size() << " candidates.\n";
-    //这一步会修改 BB，导致 GlobalInstructions 里的索引失效
-    // 所以必须在进入下一次循环（Len--）时调用 mapInstructions 重建
     performOutlining(BC, GlobalOutlineCount);
     }
   }
