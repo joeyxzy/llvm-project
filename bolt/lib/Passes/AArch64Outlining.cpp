@@ -519,6 +519,47 @@ void performOutlining(BinaryContext &BC,int &GlobalOutlineCount) {
   // 3. 执行替换
   for (const auto &Req : Requests) {
     BinaryBasicBlock *BB = Req.BB;
+    //尾调用优化
+    bool IsTailCall = false;
+    
+    if (Req.Index + Req.Length < BB->size()) {
+        const MCInst &NextInst = BB->getInstructionAtIndex(Req.Index + Req.Length);
+        if (BC.MIB->isReturn(NextInst)) {
+            IsTailCall = true;
+        }
+    }
+
+    if (IsTailCall) {
+        outs() << "BOLT-INFO: Performing Tail Call Optimization in " 
+               << BB->getFunction()->getPrintName() << "\n";
+
+        // 1. 创建 B (Branch) 指令，而不是 BL
+        MCInst BranchInst;
+        // 使用 createUncondBranch 生成无条件跳转 b
+        BC.MIB->createUncondBranch(BranchInst, Req.Callee->getSymbol(), BC.Ctx.get());
+
+        // 2. 删除指令
+        // 我们需要删除：[Candidate] + [RET]
+        
+        // 删除原来的 RET 指令 (位于 Index + Length)
+        auto RetIter = BB->begin() + (Req.Index + Req.Length);
+        BB->eraseInstruction(RetIter);
+
+        // 删除 Candidate 中除了第一条以外的指令 (和下面逻辑类似)
+        if (Req.Length > 1) {
+            auto EraseIt = BB->begin() + Req.Index + 1;
+            for (uint32_t k = 1; k < Req.Length; ++k) {
+                EraseIt = BB->eraseInstruction(EraseIt);
+            }
+        }
+
+        // 3. 替换第一条指令为 B
+        auto It = BB->begin() + Req.Index;
+        *It = BranchInst;
+
+        // TCO 完成，无需处理 Need3Steps，也不需要 STP/LDP
+        continue; 
+    }
     BinaryFunction *CallerFunc = BB->getFunction();
     FrameType FT = analyzeFunctionFrame(BC, *CallerFunc);
     bool Need3Steps = (FT != FrameType::Standard);
