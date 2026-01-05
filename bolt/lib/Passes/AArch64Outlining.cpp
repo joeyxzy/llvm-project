@@ -34,7 +34,7 @@ namespace opts {
   cl::opt<bool>
       EnablePGO("aarch64-outlining-pgo",
                       cl::desc("Use profile data to skip outlining of hot code"),
-                      cl::init(true), // 默认开启，如果有 profile 就用
+                      cl::init(false), // 默认开启，如果有 profile 就用
                       cl::cat(BoltOptCategory));
   } // namespace opts
 

@@ -5,7 +5,8 @@ BOLT_BIN="$HOME/llvm-project/build/bin/llvm-bolt"
 OBJDUMP_BIN="aarch64-linux-gnu-objdump"
 SIZE_BIN="size"  # 统计大小工具
 #BOLT_FLAGS="-aarch64-outlining -icf=1 -eliminate-unreachable=1 -peepholes=all -split-functions=0 -inline-small-functions=0 -align-blocks=0 -align-functions=4 -reorder-blocks=none -reorder-functions=none -simplify-rodata-loads -lite=0"
-BOLT_FLAGS="-aarch64-outlining -icf=all -eliminate-unreachable=1 -peepholes=none -split-functions=0 -inline-small-functions=0 -align-blocks=0 -align-text=1 -align-functions=1 -reorder-blocks=none -reorder-functions=none -simplify-rodata-loads -lite=0 -use-old-text"
+BOLT_FLAGS="-aarch64-outlining -data bench.fdata -icf=all -eliminate-unreachable=1 -peepholes=none -split-functions=0 -inline-small-functions=0 -align-blocks=0 -align-text=1 -align-functions=1 -reorder-blocks=none -reorder-functions=none -simplify-rodata-loads -lite=0 -use-old-text"
+#BOLT_FLAGS="-aarch64-outlining -icf=all -eliminate-unreachable=1 -peepholes=none -split-functions=0 -inline-small-functions=0 -align-blocks=0 -align-text=1 -align-functions=1 -reorder-blocks=none -reorder-functions=none -simplify-rodata-loads -lite=0 -use-old-text"
 #BOLT_FLAGS="-aarch64-outlining"
 # ===========================================
 
