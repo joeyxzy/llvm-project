@@ -1869,6 +1869,10 @@ public:
     llvm_unreachable("not implemented");
   }
 
+  virtual bool isModifyingLRorFP(const BinaryContext &BC, const MCInst &Inst) const {
+    llvm_unreachable("not implemented for this target");
+  }
+
   virtual bool hasRefToStackOrFramePointer(const MCInst &Inst) const {
     llvm_unreachable("not implemented for this target");
   }

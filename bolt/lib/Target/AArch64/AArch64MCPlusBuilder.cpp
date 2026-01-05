@@ -2444,6 +2444,21 @@ public:
 // 在 AArch64MCPlusBuilder 类内部添加：
 // 在 AArch64MCPlusBuilder 类内部添加：
 
+bool isModifyingLRorFP(const BinaryContext &BC, const MCInst &Inst) const override {
+  // 1. 显式 Call 判定（BL/BLR 必然修改 LR）
+  if (BC.MIB->isCall(Inst))
+    return true;
+
+  // 2. 使用你发现的现成接口：hasDefOfPhysReg
+  // 它已经处理了：隐式定义 (Implicit Defs) 和 显式定义 (Explicit Defs)
+  if (BC.MIB->hasDefOfPhysReg(Inst, AArch64::LR) ||
+      BC.MIB->hasDefOfPhysReg(Inst, BC.MIB->getFramePointer())) {
+    return true;
+  }
+
+  return false;
+}
+
 bool hasRefToStackOrFramePointer(const MCInst &Inst) const override {
   if (isStoreToStack(Inst) || isLoadFromStack(Inst)) 
     return true;

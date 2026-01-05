@@ -54,6 +54,7 @@ struct Candidate {
   uint64_t Length;   // 长度
   uint64_t Benefit;  // 预估收益
   std::vector<uint64_t> Occurrences; //匹配区间的startidx
+  bool HasCall = false;
 };
 
 // 定义一个结构体来暂存替换请求
